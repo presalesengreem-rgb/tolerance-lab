@@ -392,6 +392,25 @@ const stamp = () => {
 };
 
 const dirText = (v, pos, neg, eps = 0.5) => (Math.abs(v) < eps ? '—' : v > 0 ? pos : neg);
+const copyText = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {}
+  try {
+    const t = document.createElement('textarea');
+    t.value = text;
+    t.style.position = 'fixed';
+    t.style.opacity = '0';
+    document.body.appendChild(t);
+    t.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(t);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+};
 const sgn = (v) => (v > 0 ? '+' : '') + v.toFixed(2);
 
 const CSS = `
@@ -466,7 +485,7 @@ const CSS = `
 .tl-empty{font-size:13px;color:var(--mute);border-top:1px dashed var(--line2);margin-top:14px;padding-top:12px}
 .tl-save{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .tl-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:#fff}
-.tl-table{width:100%;border-collapse:collapse;font-size:13px;color:var(--ink);min-width:860px}
+.tl-table{width:100%;border-collapse:collapse;font-size:13px;color:var(--ink);min-width:980px}
 .tl-table th{background:var(--bg);color:var(--ink2);font-weight:700;text-align:right;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
 .tl-table td{padding:9px 12px;border-bottom:1px solid #f1ebe5;vertical-align:middle;color:var(--ink)}
 .tl-table tr:last-child td{border-bottom:none}
@@ -480,6 +499,8 @@ const CSS = `
 .tl-overlay{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px}
 .tl-modal{background:#fff;color:var(--ink);border-radius:22px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;padding:22px;border:1px solid var(--line)}
 .tl-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 20px;border-radius:12px;font-size:13px;z-index:60}
+.tl-copy{background:#fff;border:1px dashed var(--line2);border-radius:8px;padding:2px 8px;cursor:pointer;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--ink);direction:ltr}
+.tl-copy:hover{background:var(--tint);border-color:var(--accent)}
 .tl-foot{font-size:12px;color:var(--mute);line-height:1.8}
 .tl-h2{font-size:16px;font-weight:700;margin:0;color:var(--ink)}
 `;
@@ -503,7 +524,7 @@ const TrashIcon = () => (
 );
 
 /* عرض نتيجة واحدة (يستخدم بالبطاقة وبنافذة العين) */
-function ResultView({ res, tolerance }) {
+function ResultView({ res, tolerance, onCopy }) {
   return (
     <div className="tl-result">
       <div className="tl-res-top">
@@ -511,12 +532,12 @@ function ResultView({ res, tolerance }) {
           <div>
             <div className="cap">HEX الشركة</div>
             <div className="c" style={{ backgroundColor: res.hex }} />
-            <div className="t">{res.hex}</div>
+            <div className="t">{onCopy ? <button type="button" className="tl-copy" title="نسخ" onClick={() => onCopy(res.hex)}>{res.hex}</button> : res.hex}</div>
           </div>
           <div>
-            <div className="cap">القياس</div>
+            <div className="cap">القياس (HEX)</div>
             <div className="c" style={{ backgroundColor: res.measHex }} />
-            <div className="t">{res.measHex}</div>
+            <div className="t">{onCopy ? <button type="button" className="tl-copy" title="نسخ" onClick={() => onCopy(res.measHex)}>{res.measHex}</button> : res.measHex}</div>
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 260 }}>
@@ -597,6 +618,11 @@ export default function ToleranceTool() {
   const flash = (msg) => {
     setToast(msg);
     setTimeout(() => setToast(''), 2200);
+  };
+
+  const doCopy = async (t) => {
+    const ok = await copyText(t);
+    flash(ok ? `تم نسخ ${t}` : 'ما انتسخ، انسخه يدوياً');
   };
 
   const results = useMemo(() => products.map((p) => analyze(p, settings)), [products, settings]);
@@ -723,12 +749,12 @@ export default function ToleranceTool() {
 
   const exportCsv = () => {
     const rows = [
-      ['Date', 'Product', 'Finish', 'Brand HEX', 'Measured HEX (sRGB)', 'Readings', 'L*', 'a*', 'b*', 'Illuminant used', 'DeltaE2000', 'dL', 'dC', 'Tolerance', 'Status', 'Likely cause'],
+      ['Date', 'Product', 'Finish', 'Brand HEX', 'Readings', 'L*', 'a*', 'b*', 'Measured HEX (sRGB)', 'Illuminant used', 'DeltaE2000', 'dL', 'dC', 'Tolerance', 'Status', 'Likely cause'],
     ];
     filtered.forEach((h) => {
       rows.push([
-        h.savedAt, h.name, h.finish, h.res.hex, h.res.measHex, h.res.n,
-        h.res.meas.L.toFixed(2), h.res.meas.a.toFixed(2), h.res.meas.b.toFixed(2),
+        h.savedAt, h.name, h.finish, h.res.hex, h.res.n,
+        h.res.meas.L.toFixed(2), h.res.meas.a.toFixed(2), h.res.meas.b.toFixed(2), h.res.measHex,
         h.illuminant, h.res.de.toFixed(2), h.res.dL.toFixed(2), h.res.dC.toFixed(2),
         h.tolerance, h.res.pass ? 'PASS' : 'FAIL', h.res.cause,
       ]);
@@ -907,6 +933,7 @@ export default function ToleranceTool() {
                           {info && (
                             <>
                               <span className="tl-rsw" style={{ backgroundColor: info.hex }} title={info.hex} />
+                              <button type="button" className="tl-copy" title="نسخ HEX هذي القراءة" onClick={() => doCopy(info.hex)}>{info.hex}</button>
                               {info.de !== null && (
                                 <span className="tl-rde" style={{ color: info.de <= settings.tolerance ? '#067647' : '#b42318' }}>
                                   ΔE {info.de.toFixed(2)}
@@ -938,7 +965,7 @@ export default function ToleranceTool() {
 
                 {res ? (
                   <>
-                    <ResultView res={res} tolerance={settings.tolerance} />
+                    <ResultView res={res} tolerance={settings.tolerance} onCopy={doCopy} />
                     <div className="tl-save" style={{ marginTop: 12 }}>
                       <button type="button" className="tl-btn" onClick={() => saveOne(p, res)}>حفظ هذي القراءة بالسجل</button>
                     </div>
@@ -1022,6 +1049,7 @@ export default function ToleranceTool() {
                     <th>المنتج</th>
                     <th>HEX الشركة</th>
                     <th>القياس (L, a, b)</th>
+                    <th>HEX القياس</th>
                     <th>قراءات</th>
                     <th>ΔE</th>
                     <th>الحالة</th>
@@ -1035,14 +1063,15 @@ export default function ToleranceTool() {
                       <td style={{ whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>{h.savedAt}</td>
                       <td style={{ fontWeight: 600 }}>{h.name}</td>
                       <td>
-                        <span className="tl-mini"><i style={{ background: h.res.hex }} /><span className="tl-mono">{h.res.hex}</span></span>
+                        <span className="tl-mini"><i style={{ background: h.res.hex }} /><button type="button" className="tl-copy" title="نسخ" onClick={() => doCopy(h.res.hex)}>{h.res.hex}</button></span>
+                      </td>
+                      <td className="tl-mono">
+                        {h.res.meas.L.toFixed(1)}, {h.res.meas.a.toFixed(1)}, {h.res.meas.b.toFixed(1)}
                       </td>
                       <td>
                         <span className="tl-mini">
                           <i style={{ background: h.res.measHex }} />
-                          <span className="tl-mono">
-                            {h.res.meas.L.toFixed(1)}, {h.res.meas.a.toFixed(1)}, {h.res.meas.b.toFixed(1)}
-                          </span>
+                          <button type="button" className="tl-copy" title="نسخ" onClick={() => doCopy(h.res.measHex)}>{h.res.measHex}</button>
                         </span>
                       </td>
                       <td>{h.res.n}</td>
@@ -1100,7 +1129,7 @@ export default function ToleranceTool() {
               <button type="button" className="tl-x" onClick={() => setViewing(null)} aria-label="إغلاق">✕</button>
             </div>
 
-            <ResultView res={viewing.res} tolerance={viewing.tolerance} />
+            <ResultView res={viewing.res} tolerance={viewing.tolerance} onCopy={doCopy} />
 
             {viewing.readings.length > 0 && (
               <div style={{ marginTop: 14 }}>
