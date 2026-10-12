@@ -198,22 +198,24 @@ function analyze(p, s) {
   const labs = p.readings.filter((r) => !r.hidden).map((r) => parseLab(r.text)).filter(Boolean);
   if (!hex || labs.length === 0) return null;
 
-  const ref = hexToLab(hex);
-  const toD65 = (lab, from) => adaptLab(lab, from, 'D65');
+  const ill = s.illuminant;
+  // الـ HEX معرّف على D65، فنحوله إلى إضاءة الجهاز المختارة ونقارن بنفس الإضاءة
+  const ref = adaptLab(hexToLab(hex), 'D65', ill);
   const rawMean = meanLab(labs);
-  const meas = toD65(rawMean, s.illuminant);
+  const meas = rawMean; // قراءة الجهاز كما هي بدون أي تحويل
+  const measD65 = adaptLab(rawMean, ill, 'D65'); // للعرض بالشاشة وفحص حدود sRGB فقط
   const r = deltaE2000(ref, meas);
 
   const spreads = labs.map((l) => deltaE2000(rawMean, l).dE);
   const maxDev = Math.max(...spreads);
 
   const other = s.illuminant === 'D65' ? 'D50' : 'D65';
-  const altDe = deltaE2000(ref, toD65(rawMean, other)).dE;
+  const altDe = deltaE2000(ref, adaptLab(rawMean, other, ill)).dE;
 
-  const lin = labToLinearRgb(meas);
+  const lin = labToLinearRgb(measD65);
   const outOfGamut = lin.some((v) => v < -0.003 || v > 1.003);
   const measHex = linearRgbToHex(lin);
-  const gamutDe = deltaE2000(meas, hexToLab(measHex)).dE;
+  const gamutDe = deltaE2000(measD65, hexToLab(measHex)).dE;
 
   // حالة الجهاز (بلاطة بيضاء)
   let device = null;
@@ -315,6 +317,7 @@ function analyze(p, s) {
     ref,
     meas,
     measHex,
+    illuminant: ill,
     n: labs.length,
     de: r.dE,
     dL: r.dL,
@@ -335,11 +338,9 @@ function readingInfo(text, refHex, illuminant) {
   const lab = parseLab(text);
   if (!lab) return null;
   const hex = parseHex(refHex);
-  const d65 = adaptLab(lab, illuminant, 'D65');
-  return {
-    hex: linearRgbToHex(labToLinearRgb(d65)),
-    de: hex ? deltaE2000(hexToLab(hex), d65).dE : null,
-  };
+  const swatch = linearRgbToHex(labToLinearRgb(adaptLab(lab, illuminant, 'D65')));
+  const ref = hex ? adaptLab(hexToLab(hex), 'D65', illuminant) : null;
+  return { hex: swatch, de: ref ? deltaE2000(ref, lab).dE : null };
 }
 
 /* ---------- حفظ البيانات (يعمل بالمعاينة وبالمتصفح) ---------- */
@@ -525,7 +526,7 @@ function ResultView({ res, tolerance }) {
               {res.pass ? 'ضمن التولرنس' : `خارج التولرنس (الحد ${tolerance})`}
             </span>
           </div>
-          <div className="tl-hint">القياس معروض بعد تحويله إلى D65. عدد القراءات: {res.n}</div>
+          <div className="tl-hint">المقارنة تمت بإضاءة {res.illuminant || 'D65'} (الـ HEX يتحول لها تلقائياً). عدد القراءات: {res.n}</div>
           <div className="tl-deltas">
             <div className="tl-delta">الفتوح (ΔL)<b>{sgn(res.dL)}</b>{dirText(res.dL, 'القياس أفتح', 'القياس أغمق')}</div>
             <div className="tl-delta">التشبّع (ΔC)<b>{sgn(res.dC)}</b>{dirText(res.dC, 'أكثر تشبعاً', 'أقل تشبعاً')}</div>
@@ -722,7 +723,7 @@ export default function ToleranceTool() {
 
   const exportCsv = () => {
     const rows = [
-      ['Date', 'Product', 'Finish', 'Brand HEX', 'Measured HEX (D65)', 'Readings', 'L*', 'a*', 'b*', 'Illuminant', 'DeltaE2000', 'dL', 'dC', 'Tolerance', 'Status', 'Likely cause'],
+      ['Date', 'Product', 'Finish', 'Brand HEX', 'Measured HEX (sRGB)', 'Readings', 'L*', 'a*', 'b*', 'Illuminant used', 'DeltaE2000', 'dL', 'dC', 'Tolerance', 'Status', 'Likely cause'],
     ];
     filtered.forEach((h) => {
       rows.push([
@@ -770,7 +771,7 @@ export default function ToleranceTool() {
                 </button>
               ))}
             </div>
-            <p className="tl-hint">الـ HEX مبني على D65. إذا جهازك على D50 تتحول القراءة تلقائياً قبل المقارنة.</p>
+            <p className="tl-hint">الـ HEX مبني على D65، فيتحول تلقائياً إلى إضاءة جهازك المختارة (طريقة Bradford) وتتم المقارنة بنفس الإضاءة.</p>
           </div>
 
           <div>
